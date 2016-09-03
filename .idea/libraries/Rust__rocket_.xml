@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Rust &lt;rocket&gt;">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/../rust-1.11.0-src.zip!/rust-801d2682df6cac505916644ebe678c9105f4c418/src/libstd" />
+      <root url="jar://$PROJECT_DIR$/../rust-1.11.0-src.zip!/rust-801d2682df6cac505916644ebe678c9105f4c418/src/libcore" />
+      <root url="jar://$PROJECT_DIR$/../rust-1.11.0-src.zip!/rust-801d2682df6cac505916644ebe678c9105f4c418/src/libcollections" />
+      <root url="jar://$PROJECT_DIR$/../rust-1.11.0-src.zip!/rust-801d2682df6cac505916644ebe678c9105f4c418/src/liballoc" />
+      <root url="jar://$PROJECT_DIR$/../rust-1.11.0-src.zip!/rust-801d2682df6cac505916644ebe678c9105f4c418/src/librustc_unicode" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

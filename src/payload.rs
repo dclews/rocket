@@ -3,30 +3,58 @@ use std::io::{self, Write};
 use std::fs;
 use std::process;
 use git2;
+use regex;
 
-pub enum Source<'a> {
-    Local(&'a Path),
-    Git(&'a str),
+pub enum Source {
+    Local(String),
+    Git(String),
+}
+impl Source {
+    pub fn from_str(s: &str) -> Source {
+        let source_url_regex = regex::Regex::new(r"@(.+:.+)")
+            .expect("Failed to build regex for source parsing");
+
+        if source_url_regex.is_match(s) {
+            Source::Git(s.to_owned())
+        }
+        else {
+            Source::Local(s.to_owned())
+        }
+    }
 }
 
-pub enum Target<'a> {
-    BuiltIn(&'a str),
-    LocalJson(&'a Path),
-    RemoteJson(&'a str),
+pub enum Target {
+    BuiltIn(String),
+    Json(String),
 }
-impl<'a> Target<'a> {
+impl Target {
+    pub fn from_str(s: &str) -> Target {
+        if s.ends_with(".json") {
+            Target::Json(s.to_owned())
+        }
+        else {
+            Target::BuiltIn(s.to_owned())
+        }
+    }
     pub fn as_string(&self) -> String {
         match *self {
-            Target::BuiltIn(s) => s.to_owned(),
-            Target::LocalJson(p) => {
+            Target::BuiltIn(ref s) => s.clone(),
+            Target::Json(ref s) => {
+                let p = Path::new(s.as_str());
                 let parent = p.parent().unwrap();
                 let stem = p.file_stem().unwrap();
                 let mut pb = parent.to_path_buf();
                 pb.push(stem);
                 String::from(pb.to_str().unwrap())
-            },
-            Target::RemoteJson(p) => {
-                panic!("Not implemented");
+            }
+        }
+    }
+    pub fn as_stem(&self) -> String {
+        match *self {
+            Target::BuiltIn(ref s) => s.clone(),
+            Target::Json(ref s) => {
+                let p = Path::new(s.as_str());
+                String::from(p.file_stem().unwrap().to_str().unwrap())
             },
         }
     }
@@ -39,8 +67,12 @@ pub enum Feature {
 impl Feature {
     pub fn canonicalize(&self, t: &Target) -> String {
         match *self {
-            Feature::Common(ref s) => s.clone(),
-            Feature::ArchSpecific(ref s) => format!("_{}-{}", t.as_string(), s),
+            Feature::Common(ref s) => {
+                s.clone()
+            },
+            Feature::ArchSpecific(ref s) => {
+                format!("_{}-{}", t.as_stem(), s)
+            },
         }
     }
 }
@@ -48,33 +80,76 @@ impl Feature {
 pub enum Loader {
     GRUB,
 }
+impl Loader {
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "grub" => Ok(Loader::GRUB),
+            _ => Err(format!("Unknown bootloader {}", s)),
+        }
+    }
+}
 pub enum Runner {
     Qemu,
 }
-
-pub struct Payload<'a> {
-    source: Source<'a>,
-    target: Target<'a>,
-    features: Vec<Feature>,
+impl Runner {
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "qemu" => Ok(Runner::Qemu),
+            _ => Err(format!("Unknown bootloader {}", s)),
+        }
+    }
+}
+pub struct Payload {
+    source: Option<Source>,
+    target: Target,
     loader: Option<Loader>,
     runner: Option<Runner>,
+    features: Vec<Feature>,
     path: PathBuf,
 }
 
-impl<'a> Payload<'a> {
-    pub fn new(source: Source<'a>,
-               target: Target<'a>,
-               features: Vec<Feature>,
-               loader: Option<Loader>,
-               runner: Option<Runner>)
-               -> Result<Payload<'a>, String> {
+impl Payload {
+    pub fn new(options: Vec<String>) -> Result<Payload, String> {
+        let mut source: Option<Source> = None;
+        let mut target: Option<Target> = None;
+        let mut loader: Option<Loader> = None;
+        let mut runner: Option<Runner> = None;
+        let mut features: Vec<Feature> = vec![];
+        let path = Path::new("./payload").to_owned();
+
+        let option_regex = regex::Regex::new(r"--(\w+)=(\S+)")
+            .expect("Failed to build regex for option parsing");
+
+        for o in options {
+            let o = o.as_str();
+            if !option_regex.is_match(o) {
+                return Err(format!("Unrecognized option {}", o));
+            }
+            for cap in option_regex.captures_iter(o) {
+                let option_name = cap.at(1).unwrap();
+                let option_value = cap.at(2).unwrap();
+
+                match option_name {
+                    "source" => source = Some(Source::from_str(option_value)),
+                    "target" => target = Some(Target::from_str(option_value)),
+                    "loader" => loader = Some(Loader::from_str(option_value).unwrap()),
+                    "runner" => runner = Some(Runner::from_str(option_value).unwrap()),
+                    _ => return Err(format!("Unrecognised payload option {}", option_name)),
+                };
+            }
+        }
+
+        let target = match target {
+            Some(t) => t,
+            None => return Err("No target configured".to_owned()),
+        };
         Ok(Payload {
-            path: Path::new("./payload").to_owned(),
             source: source,
             target: target,
-            features: features,
             loader: loader,
             runner: runner,
+            features: features,
+            path: path,
         })
     }
     pub fn path(&self) -> &Path {
@@ -92,28 +167,29 @@ impl<'a> Payload<'a> {
     pub fn fetch(&mut self) -> Result<PathBuf, String> {
         let payload_path = self.path();
         match self.source {
-            Source::Local(_) => Ok(payload_path.to_path_buf()),
-            Source::Git(url) => {
-                let mut cb = git2::RemoteCallbacks::new();
-                let _ = cb.credentials(Payload::auth);
+            Some(Source::Local(_)) => Ok(payload_path.to_path_buf()),
+            Some(Source::Git(ref url)) => {
+                    let mut cb = git2::RemoteCallbacks::new();
+                    let _ = cb.credentials(Payload::auth);
 
-                let mut co = git2::build::CheckoutBuilder::new();
+                    let mut co = git2::build::CheckoutBuilder::new();
 
-                let mut fo = git2::FetchOptions::new();
-                let _ = fo.remote_callbacks(cb);
+                    let mut fo = git2::FetchOptions::new();
+                    let _ = fo.remote_callbacks(cb);
 
-                let repo = match git2::build::RepoBuilder::new()
-                    .fetch_options(fo)
-                    .with_checkout(co)
-                    .clone(url, payload_path) {
-                    Ok(repo) => {
-                        println!("Fetched remote repository {:?}", url);
-                        repo
-                    }
-                    Err(e) => return Err(format!("Failed to clone payload git repo: {}", e)),
-                };
-                Ok(payload_path.to_path_buf())
-            }
+                    let repo = match git2::build::RepoBuilder::new()
+                        .fetch_options(fo)
+                        .with_checkout(co)
+                        .clone(url.as_str(), payload_path) {
+                        Ok(repo) => {
+                            println!("Fetched remote repository {:?}", url);
+                            repo
+                        }
+                        Err(e) => return Err(format!("Failed to clone payload git repo: {}", e)),
+                    };
+                    Ok(payload_path.to_path_buf())
+                },
+            None => Err("No source configured from which to fetch".to_owned()),
         }
     }
     fn auth(url: &str,
@@ -150,29 +226,47 @@ impl<'a> Payload<'a> {
     }
     pub fn build(&mut self) -> Result<(), String> {
         let target = self.target.as_string();
-        let mut xargo = process::Command::new("xargo");
-        let _ = xargo.current_dir(Path::new("./payload"));
 
-        let _ = xargo.arg("--target");
-        let _ = xargo.arg(target);
-        let _ = xargo.arg("--features=");
+        let mut args: Vec<String> = vec![];
+        args.push("build".to_owned());
+        args.push("--verbose".to_owned());
+        args.push("--target".to_owned());
+        args.push(target);
 
+        args.push("--features".to_owned());
         self.features.push(Feature::ArchSpecific("rt".to_owned()));
         match self.loader {
             Some(Loader::GRUB) => {
                 self.features.push(Feature::ArchSpecific("grub".to_owned()));
-            },
-            None => {},
+            }
+            None => {}
         };
+        let feature_strings: Vec<String> = self.features
+            .iter()
+            .map(|f| f.canonicalize(&self.target))
+            .collect();
 
-        for f in self.features.iter() {
-            println!("{}", f.canonicalize(&self.target));
-            xargo.arg(f.canonicalize(&self.target));
+        let feature_string = format!("\"{}\"", feature_strings.join(" "));
+        args.push(feature_string);
+
+        let command = "xargo";
+        println!("Running {} {}", command, args.join(" "));
+        let mut child = process::Command::new(command)
+            .args(args.as_slice())
+            .spawn()
+            .expect("Failed to execute xargo");
+
+        match child.wait() {
+            Ok(status) => {
+                if status.success() {
+                    println!("Build successful");
+                    Ok(())
+                } else {
+                    Err(format!("Build failed. Error code {}", status))
+                }
+            }
+            Err(e) => Err(format!("Failed to execute xargo: {}", e)),
         }
-
-        println!("Running xargo");
-        let output = xargo.spawn().expect("Failed to execute xargo");
-        Ok(())
     }
     fn say(stage: &str, s: String) {
         print!("[{}] {}", stage, s);

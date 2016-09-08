@@ -1,5 +1,5 @@
-echo export PATH="$USERPOFILE/.cargo/bin:$PATH" > ~/.bash_profile
-export PATH="$USERPOFILE/.cargo/bin:$PATH"
+echo export PATH=\"\$USERPROFILE/.cargo/bin:\$PATH\" > ~/.bash_profile
+export PATH="$USERPROFILE/.cargo/bin:$PATH"
 
 which cargo
 if [ $? -ne 0 ]; then

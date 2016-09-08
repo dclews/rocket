@@ -202,7 +202,7 @@ impl Payload {
             None => {
                 match Self::ask("Auth", format!("Enter username for {}", url)) {
                     Ok(username) => username,
-                    Err(e) => return Err(git2::Error::from_str("Failed to read username")),
+                    Err(_) => return Err(git2::Error::from_str("Failed to read username")),
                 }
             }
         };
@@ -215,20 +215,26 @@ impl Payload {
                     Ok(git2::Cred::userpass_plaintext(username.as_str(), password.as_str())
                         .expect("failed to create credential object"))
                 }
-                Err(e) => return Err(git2::Error::from_str("Failed to read password")),
+                Err(_) => return Err(git2::Error::from_str("Failed to read password")),
             }
         } else {
             Err(git2::Error::from_str("Failed to authenticate"))
         }
     }
     pub fn doc(&mut self) -> Result<(), String> {
-        Err(String::from("Unimplemented"))
+        self.cargo("cargo", "doc")
     }
     pub fn build(&mut self) -> Result<(), String> {
+        self.cargo("xargo", "build")
+    }
+    pub fn run(&mut self) -> Result<(), String> {
+        self.cargo("xargo", "run")
+    }
+    fn cargo(&mut self, command: &str, cargo_subcommand: &str) -> Result<(), String> {
         let target = self.target.as_string();
 
         let mut args: Vec<String> = vec![];
-        args.push("build".to_owned());
+        args.push(cargo_subcommand.to_owned());
         args.push("--verbose".to_owned());
         args.push("--target".to_owned());
         args.push(target);
@@ -246,15 +252,14 @@ impl Payload {
             .map(|f| f.canonicalize(&self.target))
             .collect();
 
-        let feature_string = format!("\"{}\"", feature_strings.join(" "));
+        let feature_string = feature_strings.join(" ");
         args.push(feature_string);
 
-        let command = "xargo";
         println!("Running {} {}", command, args.join(" "));
         let mut child = process::Command::new(command)
             .args(args.as_slice())
             .spawn()
-            .expect("Failed to execute xargo");
+            .expect("Failed to execute build system");
 
         match child.wait() {
             Ok(status) => {

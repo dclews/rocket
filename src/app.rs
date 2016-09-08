@@ -17,20 +17,20 @@ pub struct App {
 }
 impl App {
     pub fn new() -> Result<App, String> {
-        let command_regex = regex::Regex::new(r"-[a-z]+")
+        let command_regex = regex::Regex::new(r"\A-[a-z]+")
             .expect("Failed to build regex for command parsing");
         let mut commands: Vec<Command> = vec![];
         let mut payload_args: Vec<String> = vec![];
         for arg in env::args().skip(1) {
             if command_regex.is_match(arg.as_str()) {
-                for c in arg.chars() {
+                for c in arg.chars().skip(1) {
                     match c {
                         'c' => commands.push(Command::Clean),
                         'f' => commands.push(Command::Fetch),
                         'p' => commands.push(Command::Pull),
                         'b' => commands.push(Command::Build),
                         'r' => commands.push(Command::Run),
-                        _ => return Err(format!("Unrecognized command '{}'", c)),
+                        _ => return Err(format!("Unrecognized application command '{}'", c)),
                     };
                 }
             } else {
@@ -60,6 +60,9 @@ impl App {
                 Command::Clean => {
                     self.payload.clean();
                 },
+                Command::Run => {
+                    self.payload.run().expect("Failed to run payload");
+                }
                 _ => {
                     panic!("Command '{:?}' not yet implemented", command);
                 },

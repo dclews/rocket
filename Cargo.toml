@@ -1,0 +1,13 @@
+[package]
+name = "rocket"
+version = "0.1.0"
+authors = ["xClueless <clueless_@live.co.uk>"]
+
+[dependencies]
+git2 = "*"
+regex = "*"
+xargo = "*"
+
+[[bin]]
+name = "rocket"
+path = "src/main.rs"

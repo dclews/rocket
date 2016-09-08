@@ -9,5 +9,5 @@ regex = "*"
 xargo = "*"
 
 [[bin]]
-name = "rocket"
+name = "cargo-rocket"
 path = "src/main.rs"

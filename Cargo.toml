@@ -8,6 +8,14 @@ git2 = "*"
 regex = "*"
 xargo = "*"
 
+[lib]
+name = "rocket"
+path = "src/mod.rs"
+
 [[bin]]
 name = "cargo-rocket"
-path = "src/main.rs"
+path = "src/bin/cargo_rocket.rs"
+
+[[bin]]
+name = "rocket"
+path = "src/bin/rocket.rs"

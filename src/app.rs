@@ -16,12 +16,12 @@ pub struct App {
     payload: payload::Payload,
 }
 impl App {
-    pub fn new() -> Result<App, String> {
+    pub fn new(args: Vec<String>) -> Result<App, String> {
         let command_regex = regex::Regex::new(r"\A-[a-z]+")
             .expect("Failed to build regex for command parsing");
         let mut commands: Vec<Command> = vec![];
         let mut payload_args: Vec<String> = vec![];
-        for arg in env::args().skip(1) {
+        for arg in args {
             if command_regex.is_match(arg.as_str()) {
                 for c in arg.chars().skip(1) {
                     match c {

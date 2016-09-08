@@ -1,12 +1,10 @@
-// extern crate nasm;
-extern crate git2;
-extern crate regex;
-
-pub mod payload;
-pub mod app;
+extern crate rocket;
+use rocket::app;
+use std::env;
 
 fn main() {
-    let mut application = match app::App::new() {
+    let args: Vec<String> = env::args().skip(2).collect();
+    let mut application = match app::App::new(args) {
         Ok(a) => a,
         Err(e) => {
             println!("Error: {}", e);

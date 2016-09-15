@@ -29,8 +29,8 @@ impl App {
                         'c' => commands.push(Command::Clean),
                         'f' => commands.push(Command::Fetch),
                         'p' => commands.push(Command::Pull),
-                        'd' => commands.push(Command::Build),
-                        'b' => commands.push(Command::Doc),
+                        'b' => commands.push(Command::Build),
+                        'd' => commands.push(Command::Doc),
                         'r' => commands.push(Command::Run),
                         _ => return Err(format!("Unrecognized application command '{}'", c)),
                     };

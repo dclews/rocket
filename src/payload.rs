@@ -222,7 +222,7 @@ impl Payload {
         }
     }
     pub fn doc(&mut self) -> Result<(), String> {
-        self.cargo("cargo", "doc")
+        self.cargo("xargo", "doc")
     }
     pub fn build(&mut self) -> Result<(), String> {
         self.cargo("xargo", "build")

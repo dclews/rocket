@@ -9,7 +9,7 @@ fn main() {
         Err(e) => {
             println!("Error: {}", e);
             panic!(app::App::usage());
-        },
+        }
     };
     application.run();
 }

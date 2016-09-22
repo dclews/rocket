@@ -7,6 +7,7 @@ authors = ["xClueless <clueless_@live.co.uk>"]
 git2 = "*"
 regex = "*"
 xargo = "*"
+toml = "*"
 
 [lib]
 name = "rocket"

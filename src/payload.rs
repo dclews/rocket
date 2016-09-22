@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::fs;
 use std::process;
+use toml;
 use git2;
 use regex;
 
@@ -16,8 +17,7 @@ impl Source {
 
         if source_url_regex.is_match(s) {
             Source::Git(s.to_owned())
-        }
-        else {
+        } else {
             Source::Local(s.to_owned())
         }
     }
@@ -31,8 +31,7 @@ impl Target {
     pub fn from_str(s: &str) -> Target {
         if s.ends_with(".json") {
             Target::Json(s.to_owned())
-        }
-        else {
+        } else {
             Target::BuiltIn(s.to_owned())
         }
     }
@@ -55,7 +54,7 @@ impl Target {
             Target::Json(ref s) => {
                 let p = Path::new(s.as_str());
                 String::from(p.file_stem().unwrap().to_str().unwrap())
-            },
+            }
         }
     }
 }
@@ -67,12 +66,8 @@ pub enum Feature {
 impl Feature {
     pub fn canonicalize(&self, t: &Target) -> String {
         match *self {
-            Feature::Common(ref s) => {
-                s.clone()
-            },
-            Feature::ArchSpecific(ref s) => {
-                format!("_{}-{}", t.as_stem(), s)
-            },
+            Feature::Common(ref s) => s.clone(),
+            Feature::ArchSpecific(ref s) => format!("_{}-{}", t.as_stem(), s),
         }
     }
 }
@@ -105,7 +100,7 @@ pub struct Payload {
     loader: Option<Loader>,
     runner: Option<Runner>,
     features: Vec<Feature>,
-    path: PathBuf,
+    toml: toml::Table,
 }
 
 impl Payload {
@@ -115,8 +110,29 @@ impl Payload {
         let mut loader: Option<Loader> = None;
         let mut runner: Option<Runner> = None;
         let mut features: Vec<Feature> = vec![];
-        let path = Path::new("./payload").to_owned();
 
+        let mut toml_string = String::new();
+        fs::File::open("Cargo.toml")
+            .and_then(|mut f| f.read_to_string(&mut toml_string))
+            .unwrap();
+        let mut parser = toml::Parser::new(&toml_string);
+        let toml = match parser.parse() {
+            Some(toml) => toml,
+            None => {
+                for err in &parser.errors {
+                    let (loline, locol) = parser.to_linecol(err.lo);
+                    let (hiline, hicol) = parser.to_linecol(err.hi);
+                    println!("{}:{}:{}-{}:{} error: {}",
+                             "Cargo.toml",
+                             loline,
+                             locol,
+                             hiline,
+                             hicol,
+                             err.desc);
+                }
+                return Err("Failed to parse Cargo.toml".to_owned());
+            }
+        };
         let option_regex = regex::Regex::new(r"--(\w+)=(\S+)")
             .expect("Failed to build regex for option parsing");
 
@@ -149,48 +165,42 @@ impl Payload {
             loader: loader,
             runner: runner,
             features: features,
-            path: path,
+            toml: toml,
         })
     }
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
     pub fn clean(&mut self) {
-        let payload_path = self.path();
-        if payload_path.exists() {
-            Self::say("Clean",
-                      format!("Removing payload directory {}",
-                              payload_path.to_str().expect("Invalid path")));
-            let _ = fs::remove_dir_all(payload_path);
-        }
+        self.cargo("xargo", "clean");
     }
     pub fn fetch(&mut self) -> Result<PathBuf, String> {
-        let payload_path = self.path();
-        match self.source {
-            Some(Source::Local(_)) => Ok(payload_path.to_path_buf()),
-            Some(Source::Git(ref url)) => {
-                    let mut cb = git2::RemoteCallbacks::new();
-                    let _ = cb.credentials(Payload::auth);
-
-                    let mut co = git2::build::CheckoutBuilder::new();
-
-                    let mut fo = git2::FetchOptions::new();
-                    let _ = fo.remote_callbacks(cb);
-
-                    let repo = match git2::build::RepoBuilder::new()
-                        .fetch_options(fo)
-                        .with_checkout(co)
-                        .clone(url.as_str(), payload_path) {
-                        Ok(repo) => {
-                            println!("Fetched remote repository {:?}", url);
-                            repo
-                        }
-                        Err(e) => return Err(format!("Failed to clone payload git repo: {}", e)),
-                    };
-                    Ok(payload_path.to_path_buf())
-                },
-            None => Err("No source configured from which to fetch".to_owned()),
-        }
+        //        let payload_path = self.artefact_path();
+        //        match self.source {
+        //            Some(Source::Local(_)) => Ok(payload_path.to_path_buf()),
+        //            Some(Source::Git(ref url)) => {
+        //                    let mut cb = git2::RemoteCallbacks::new();
+        //                    let _ = cb.credentials(Payload::auth);
+        //
+        //                    let mut co = git2::build::CheckoutBuilder::new();
+        //
+        //                    let mut fo = git2::FetchOptions::new();
+        //                    let _ = fo.remote_callbacks(cb);
+        //
+        //                    let repo = match git2::build::RepoBuilder::new()
+        //                        .fetch_options(fo)
+        //                        .with_checkout(co)
+        //                        .clone(url.as_str(), payload_path) {
+        //                        Ok(repo) => {
+        //                            println!("Fetched remote repository {:?}", url);
+        //                            repo
+        //                        }
+        //                        Err(e) => return Err(
+        //                          format!("Failed to clone payload git repo: {}", e)
+        //                        ),
+        //                    };
+        //                    Ok(payload_path.to_path_buf())
+        //                },
+        //            None => Err("No source configured from which to fetch".to_owned()),
+        //        }
+        panic!("Not yet implemented");
     }
     fn auth(url: &str,
             username: Option<&str>,
@@ -225,7 +235,99 @@ impl Payload {
         self.cargo("xargo", "doc")
     }
     pub fn build(&mut self) -> Result<(), String> {
-        self.cargo("xargo", "build")
+        let res = self.cargo("xargo", "build");
+        if res.is_err() {
+            return res;
+        }
+        match self.loader {
+            Some(Loader::GRUB) => {
+                let img_dir = PathBuf::from("./multiboot_image");
+                if img_dir.exists() {
+                    fs::remove_dir_all(&img_dir);
+                }
+                let mut boot_dir = img_dir.clone();
+                boot_dir.push("boot");
+                let mut grub_dir = boot_dir.clone();
+                grub_dir.push("grub");
+                let mut grub_cfg = grub_dir.clone();
+                grub_cfg.push("grub.cfg");
+
+                let crate_name = self.crate_name().expect("Failed to determine crate name");
+
+                let _ = fs::create_dir_all(&grub_dir).unwrap_or_else(|e| {
+                    panic!("Failed to create GRUB directory '{:?}': {}", &grub_dir, e)
+                });
+
+                let mut grub_cfg = fs::File::create(&grub_cfg).unwrap_or_else(|e| {
+                    panic!("Failed to create grub cfg at '{:?}': {}", &grub_cfg, e)
+                });
+
+                let _ = grub_cfg.write_all(format!("set timeout=3\nset default=0\nmenuentry {} \
+                                                    {{\n\tmultiboot /boot.bin\n\tboot\n}}",
+                                                   &crate_name)
+                    .as_bytes());
+
+                let mut grub_bin = img_dir.clone();
+                grub_bin.push("boot.bin");
+                let _ = fs::copy(self.artefact_path(), grub_bin)
+                    .expect("Failed to copy artefact to multiboot image directory");
+
+                match process::Command::new("grub-mkrescue")
+                    .arg(&img_dir)
+                    .arg("-o")
+                    .arg(format!("{}.iso", crate_name))
+                    .status() {
+                    Ok(status) => {
+                        match status.success() {
+                            true => Ok(()),
+                            false => {
+                                Err(format!("Failed to build multiboot ISO: Non zero exit status \
+                                             '{:?}'",
+                                            status.code()))
+                            }
+                        }
+                    }
+                    Err(e) => Err(format!("Failed to build multiboot ISO: {}", e)),
+                }
+
+                // let grub_bin = ("{}/boot.bin", img_dir);
+                // finalise_script.push(format!("cp {} {}&&", build_artefact, grub_bin));
+                // finalise_script.push(
+                // format!(
+                //  "grub2-mkrescue -o {}.iso {}", artefact_name, img_dir)
+                //  );
+            }
+            None => Ok(()),
+        }
+    }
+    fn crate_name(&self) -> Result<String, String> {
+        match self.toml.get("package") {
+            Some(&toml::Value::Table(ref t)) => {
+                match t.get("name") {
+                    Some(&toml::Value::String(ref s)) => Ok(s.clone()),
+                    _ => {
+                        Err("Failed to locate name field in [package] table in Cargo.toml."
+                            .to_owned())
+                    }
+                }
+            }
+            _ => Err("Failed to locate [package] table in Cargo.toml.".to_owned()),
+        }
+    }
+    fn build_type(&self) -> String {
+        "debug".to_owned()
+    }
+    fn artefact_path(&self) -> PathBuf {
+        let mut ap = PathBuf::from(".");
+        ap.push("target");
+        ap.push(&self.target.as_string());
+        let crate_name = match self.crate_name() {
+            Ok(n) => n,
+            Err(e) => panic!("{}", e),
+        };
+        ap.push(self.build_type());
+        ap.push(crate_name);
+        ap
     }
     pub fn run(&mut self) -> Result<(), String> {
         self.cargo("xargo", "run")
@@ -240,10 +342,10 @@ impl Payload {
         args.push(target);
 
         args.push("--features".to_owned());
-        self.features.push(Feature::ArchSpecific("rt".to_owned()));
+        // self.features.push(Feature::ArchSpecific("rt".to_owned()));
         match self.loader {
             Some(Loader::GRUB) => {
-                self.features.push(Feature::ArchSpecific("grub".to_owned()));
+                self.features.push(Feature::Common("_multiboot".to_owned()));
             }
             None => {}
         };

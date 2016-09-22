@@ -43,53 +43,58 @@ impl App {
             Ok(payload) => payload,
             Err(e) => return Err(e),
         };
-        Ok(
-            App{
-                commands: commands,
-                payload: payload
-            }
-        )
+        Ok(App {
+            commands: commands,
+            payload: payload,
+        })
     }
     pub fn run(&mut self) {
         for command in self.commands.iter() {
             match *command {
                 Command::Fetch => {
                     self.payload.fetch().expect("Failed to fetch payload");
-                },
+                }
                 Command::Build => {
                     self.payload.build().expect("Failed to build payload");
-                },
+                }
                 Command::Doc => {
                     self.payload.doc().expect("Failed to document payload");
-                },
+                }
                 Command::Clean => {
                     self.payload.clean();
-                },
+                }
                 Command::Run => {
                     self.payload.run().expect("Failed to run payload");
                 }
                 _ => {
                     panic!("Command '{:?}' not yet implemented", command);
-                },
+                }
             };
         }
     }
     pub fn usage() -> String {
-"\
+        "\
 Usage: rocket -[COMMAND,...] [PAYLOAD_OPTION_NAME=PAYLOAD_OPTION_VALUE,...]
-Example: rocket -br --source=foo@github.com/bar.git --target=x86_64 --loader=grub
+Example: \
+         rocket -br --source=foo@github.com/bar.git --target=x86_64 --loader=grub
 Commands:
-    (b)uild: Build the local copy of the payload, using any provided options.
-    (c)lean: Clean the local copy of the payload.
-    (r)un: Run the generated artefact using the specified runner.
+    \
+         (b)uild: Build the local copy of the payload, using any provided options.
+    (c)lean: \
+         Clean the local copy of the payload.
+    (r)un: Run the generated artefact using the \
+         specified runner.
     (f)etch: Fetch a payload from a repository.
-    (p)ull: Update the local payload from the repository.
+    (p)ull: Update the \
+         local payload from the repository.
 
 Payload Options:
     --source=( url | path )
-    --target=( target_name | target_json_path )
+    \
+         --target=( target_name | target_json_path )
     --loader=( grub )
     --runner=( qemu )
-".to_owned()
+"
+            .to_owned()
     }
 }

@@ -84,13 +84,17 @@ impl Loader {
     }
 }
 pub enum Runner {
-    Qemu,
+    Qemu(Option<String>),
 }
 impl Runner {
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "qemu" => Ok(Runner::Qemu),
-            _ => Err(format!("Unknown bootloader {}", s)),
+    pub fn from_str(runner_name: &str, runner_args: Option<&str>) -> Result<Self, String> {
+        let runner_args = match runner_args {
+            Some(a) => Some(a.to_owned()),
+            None => None,
+        };
+        match runner_name {
+            "qemu" => Ok(Runner::Qemu(runner_args)),
+            _ => Err(format!("Unknown runner {}", runner_name)),
         }
     }
 }
@@ -133,7 +137,7 @@ impl Payload {
                 return Err("Failed to parse Cargo.toml".to_owned());
             }
         };
-        let option_regex = regex::Regex::new(r"--(\w+)=(\S+)")
+        let option_regex = regex::Regex::new(r"--(\w+)(?:=(\w+)(?:(?:\{(.*)\})?))?")
             .expect("Failed to build regex for option parsing");
 
         for o in options {
@@ -143,14 +147,17 @@ impl Payload {
             }
             for cap in option_regex.captures_iter(o) {
                 let option_name = cap.at(1).unwrap();
-                let option_value = cap.at(2).unwrap();
+                let option_value = cap.at(2);
+                let option_args = cap.at(3);
 
-                match option_name {
-                    "source" => source = Some(Source::from_str(option_value)),
-                    "target" => target = Some(Target::from_str(option_value)),
-                    "loader" => loader = Some(Loader::from_str(option_value).unwrap()),
-                    "runner" => runner = Some(Runner::from_str(option_value).unwrap()),
-                    _ => return Err(format!("Unrecognised payload option {}", option_name)),
+                match (option_name, option_value, option_args) {
+                    ("source", Some(source_name), _) => source = Some(Source::from_str(source_name)),
+                    ("target", Some(target_name), _) => target = Some(Target::from_str(target_name)),
+                    ("loader", Some(loader_name), _) => loader = Some(Loader::from_str(loader_name).unwrap()),
+                    ("runner", Some(runner_name), _) => runner = Some(Runner::from_str(runner_name, option_args).unwrap()),
+                    ("debug_print", Some("false"), _) => {},
+                    ("debug_print", Some("true"), _) => features.push(Feature::Common("_debug_print".to_owned())),
+                    _ => return Err(format!("Invalid payload option {}", option_name)),
                 };
             }
         }
@@ -289,14 +296,7 @@ impl Payload {
                     }
                     Err(e) => Err(format!("Failed to build multiboot ISO: {}", e)),
                 }
-
-                // let grub_bin = ("{}/boot.bin", img_dir);
-                // finalise_script.push(format!("cp {} {}&&", build_artefact, grub_bin));
-                // finalise_script.push(
-                // format!(
-                //  "grub2-mkrescue -o {}.iso {}", artefact_name, img_dir)
-                //  );
-            }
+           }
             None => Ok(()),
         }
     }
@@ -330,7 +330,32 @@ impl Payload {
         ap
     }
     pub fn run(&mut self) -> Result<(), String> {
-        self.cargo("xargo", "run")
+        if let Err(x) = self.build() {
+            return Err(x);
+        }
+
+        match self.runner {
+            Some(Runner::Qemu(ref qemu_args)) => {
+                let iso_name = format!("{}.iso", self.crate_name().unwrap());
+                let qemu_binary = format!("qemu-system-{}", self.target.as_stem());
+                let mut qemu = process::Command::new(qemu_binary);
+                let _ = qemu.arg("-cdrom");
+                let _ = qemu.arg(&iso_name);
+                match qemu_args {
+                    &Some(ref qemu_args) => {
+                        let _ = qemu.arg(&qemu_args);
+                    },
+                    &None => {},
+                }
+                if qemu.status()
+                    .unwrap()
+                    .success() {
+                    return Err("Non zero qemu exit status".to_owned());
+                }
+                Ok(())
+            },
+            None => Ok(()),
+        }
     }
     fn cargo(&mut self, command: &str, cargo_subcommand: &str) -> Result<(), String> {
         let target = self.target.as_string();

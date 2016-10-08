@@ -15,4 +15,5 @@ In addition to that payloads can be further configured with long form options ta
 * `--debug_print=true|false` - enable debug! printing feature in payload.
 
 A standard invocation to build a crate for x86_64 with the GRUB bootloader and run it with qemu:
+
 `$ cargo rocket -r --target=x86_64 --loader=grub --runner=qemu`
